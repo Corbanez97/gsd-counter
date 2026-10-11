@@ -1,6 +1,6 @@
 """Animated Gaussian elimination (RREF) and kernel extraction over GF(p).
 
-The scene now runs the full pipeline of notebooks/degeneracy_sweep.ipynb:
+The scene runs the full pipeline of the gsd package:
 build A from a *parametrised* operator, reduce it to RREF, read off the rank,
 and then **construct each nullspace basis vector on screen** — one free column
 at a time, back-substituting v[pivot] = -R[i][free] into a slot row that sits
@@ -28,60 +28,28 @@ drawn as plain polylines, so this renders on a machine with no TeX install.
 from __future__ import annotations
 
 import os
+import sys
 
 import numpy as np
 from manim import *
 
 
 # ---------------------------------------------------------------------------
-# Operators — the numpy twin of ``stencil_op`` / ``OPS`` in
-# notebooks/degeneracy_sweep.ipynb, so the animation cannot drift away from the
-# notebook it illustrates. Rolls act on the last two axes: axis -2 (rows) is
-# e_2, axis -1 (columns) is e_1, and the wraparound *is* the PBC.
+# Operators come from the gsd package, so the animation cannot drift away from
+# the code it illustrates. A stencil is a polynomial; its matrix is "multiply
+# by f" on the torus (column k = the stencil stamped at site k).
 # ---------------------------------------------------------------------------
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from gsd import STENCILS, Poly, mult_matrix, nullspace, ring_mul  # noqa: E402
 
-def stencil_op(shifts, name: str):
-    """Build an operator callable ``f(t, p)`` from a shift list.
-
-    ``shifts`` entries are ``(d_row, d_col)`` or ``(d_row, d_col, coeff)``.
-    """
-    terms = [(s[0], s[1], s[2] if len(s) > 2 else 1) for s in shifts]
-
-    def f(t: np.ndarray, p: int = 2) -> np.ndarray:
-        out = np.zeros_like(t)
-        for d2, d1, c in terms:
-            out = out + c * np.roll(np.roll(t, d2, axis=-2), d1, axis=-1)
-        return out % p
-
-    f.terms = terms
-    f.name = name
-    return f
+OPS = dict(STENCILS, plus4=Poly("x + x^-1 + y + y^-1"), square4=Poly("1 + x + y + xy"),
+           nm_w2=Poly("2 + x + y"), nm=STENCILS["newman_moore"])
 
 
-OPS = {
-    "six": stencil_op([(0, 1), (0, -1), (1, 0), (-1, 0), (-1, 1), (1, -1)], "six"),
-    "two_roll": stencil_op([(0, 0), (1, 0), (0, -1)], "two_roll"),
-    "nm": stencil_op([(0, 0), (0, 1), (1, 0)], "nm"),
-    "plus4": stencil_op([(0, 1), (0, -1), (1, 0), (-1, 0)], "plus4"),
-    "nm_w2": stencil_op([(0, 0, 2), (0, 1, 1), (1, 0, 1)], "nm_w2"),
-    "square4": stencil_op([(0, 0), (0, 1), (1, 0), (1, 1)], "square4"),
-}
-
-
-def build_matrix(op, Lx: int, Ly: int, p: int) -> np.ndarray:
-    """The (Lx*Ly)^2 matrix of ``op`` on an Ly x Lx torus over GF(p).
-
-    Column k is the response to a single-site delta at site k, which *is* that
-    column by the definition of a matrix. Site (i, j) flattens to i*Lx + j.
-    """
-    n = Lx * Ly
-    A = np.zeros((n, n), dtype=int)
-    for k in range(n):
-        e = np.zeros((Ly, Lx), dtype=int)
-        e[k // Lx, k % Lx] = 1
-        A[:, k] = op(e, p).ravel()
-    return A % p
+def stencil_op(f, shape):
+    """The operator as a callable on (Lx, Ly) patterns: t -> f * t (rolls, mod p)."""
+    return lambda t, p=2: ring_mul(f.on(shape, p), np.asarray(t) % p, p)
 
 
 # ---------------------------------------------------------------------------
@@ -104,25 +72,6 @@ def gfp_inv(a: int, p: int) -> int:
     if a_mod == 0:
         raise ZeroDivisionError(f"0 has no inverse mod {p}")
     return pow(a_mod, p - 2, p)
-
-
-def nullspace_from_rref(rref: np.ndarray, pivot_cols: list[int], p: int) -> np.ndarray:
-    """Kernel basis read off a finished RREF: one vector per free column.
-
-    Mirrors ``gfp_nullspace`` in the notebook, keeping the minus sign that
-    GF(2) is allowed to drop (there -1 == +1). Row i of the RREF pairs with
-    pivot column ``pivot_cols[i]``, not with column i.
-    """
-    n_cols = rref.shape[1]
-    free_cols = [c for c in range(n_cols) if c not in pivot_cols]
-    basis = []
-    for f in free_cols:
-        v = np.zeros(n_cols, dtype=int)
-        v[f] = 1
-        for i, pivot_col in enumerate(pivot_cols):
-            v[pivot_col] = (-int(rref[i, f])) % p
-        basis.append(v)
-    return np.array(basis, dtype=int).reshape(-1, n_cols)
 
 
 class GFMatrix(VGroup):
@@ -589,7 +538,7 @@ class VisualGFpRREF(Scene):
     def show_kernel_vectors(self, matrix, rref, pivot_cols, prime) -> None:
         n = matrix.n_cols
         free_cols = [c for c in range(n) if c not in pivot_cols]
-        basis = nullspace_from_rref(rref, pivot_cols, prime)
+        basis = nullspace(self.initial_array, prime)  # = the RREF read-off above
 
         self.play(FadeOut(self.invariants_panel))
         if not free_cols:
@@ -815,17 +764,17 @@ class VisualGFpRREF(Scene):
 def operator_scene(class_name: str, op_name: str, Lx: int, Ly: int, p: int, **extra):
     if op_name not in OPS:
         raise SystemExit(f"unknown OP {op_name!r}; choose one of {sorted(OPS)}")
-    op = OPS[op_name]
+    f = OPS[op_name]
     namespace = dict(
-        op=staticmethod(op),
+        op=staticmethod(stencil_op(f, (Lx, Ly))),
         prime=p,
-        initial_array=build_matrix(op, Lx, Ly, p),
-        kernel_grid_shape=(Ly, Lx),
-        title_text=f"{op_name} operator — {Ly}x{Lx} torus over GF({p})",
+        initial_array=mult_matrix(f, (Lx, Ly), p).astype(int),
+        kernel_grid_shape=(Lx, Ly),
+        title_text=f"{op_name} operator — {Lx}x{Ly} torus over GF({p})",
         # Row-by-row elimination is unreadable once the matrix is big.
         batch_row_ops=(Lx * Ly >= 9),
         __doc__=(
-            f"{op_name} = {op.terms} on an {Ly}x{Lx} torus over GF({p}). "
+            f"{op_name}: f = {f} on an {Lx}x{Ly} torus over GF({p}). "
             f"N_c and the kernel basis are computed on screen."
         ),
     )
@@ -844,8 +793,8 @@ TwoRollL3x2 = operator_scene("TwoRollL3x2", "two_roll", 3, 2, 3)
 
 
 class KernelGF2Ring(VisualGFpRREF):
-    """The (1+x) factor on a periodic L=4 ring — section 4.2 of
-    notebooks/gf2_rref_by_hand.md.
+    """The (1+x) factor on a periodic L=4 ring — worked by hand in
+    notebooks/01_gf2_linear_algebra.ipynb.
 
     Row i of C t = 0 says t_i = t_{i-1}, so the kernel is spanned by the
     all-ones vector: rank 3, N_c = 1, GSD = 2.
@@ -864,7 +813,7 @@ class KernelGF2Ring(VisualGFpRREF):
 
 
 class KernelGF2TwoFree(VisualGFpRREF):
-    """Section 2 of the note: 3x4 with R2 = R0 + R1 over GF(2).
+    """Notebook 01, section 2: 3x4 with R2 = R0 + R1 over GF(2).
 
     Two free columns, so two independent operator identities: N_c = 2 and
     GSD = 4. This is the case that shows the free-column <-> basis-vector
