@@ -213,7 +213,7 @@ N=\deg\gcd_{\mathbb{F}_4[y]}\big(y^{m_y}+1,\ (\omega y+\omega^2)^{m_x}+1\big).\;
    $\min(2^a,2^b)$ (a Weierstrass change of variables). The only singular point is $(1,1)$, where
    $f=s^2+st+t^2$, and it contributes $2\min(2^a,2^b)-[a=b]$.
 3. *Count the points.* The two lines meet only at $(1,1)$ and Frobenius swaps them, so the number of
-   points is $P=2N-1$, with $N=\#\{\eta\in\mu_{m_y}:\omega\eta+\omega^2\in\mu_{m_x}\}$, which is the gcd
+   points is $P=2N-1$, with $`N=\#\{\eta\in\mu_{m_y}:\omega\eta+\omega^2\in\mu_{m_x}\}`$, which is the gcd
    degree above.
 4. *Add up.* $(P-1)\min+2\min-[a=b]=2\min\cdot N-[a=b]$.
 
@@ -248,7 +248,7 @@ torus, then attach local multiplicities) works for any single-species stencil.
 * **The terms must commute.** Rank–nullity describes the ground space only for commuting terms.
   `Model.commutes` checks the symplectic condition $F_XF_Z^{\mathsf T}-F_ZF_X^{\mathsf T}=0$; for $\mathbb{Z}_p$ qudits
   that is what forces the orientation signs in the toric code.
-* **"GSD $=2^{\#\text{relations}}$" only holds when there are as many terms as qubits.** In general
+* **"GSD $`=2^{\#\text{relations}}`$" only holds when there are as many terms as qubits.** In general
   $\log_2\mathrm{GSD}=(n-m)+\dim\ker F^{\mathsf T}$ for $n$ qubits and $m$ terms. The 2D toric code and classical
   stencils have $n=m$. The 3D toric code ($n=3N$, $m=4N$) has a size-dependent number of relations
   but $\log_2\mathrm{GSD}=3$.
